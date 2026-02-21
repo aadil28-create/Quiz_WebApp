@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Real-Time Quiz – Test Client</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    input, button { padding: 0.5rem; margin: 0.25rem 0; }
+    ul { list-style: none; padding: 0; }
+    li { margin-bottom: 0.25rem; }
+    .host { font-weight: bold; color: #d97706; }
+    .current { color: #3b82f6; }
+    .event { font-size: 0.9rem; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <h1>Real-Time Quiz – Test Client</h1>
+
+  <input id="name" placeholder="Enter your name" />
+  <button id="join">Join Quiz</button>
+  <button id="start">Start Quiz (host)</button>
+
+  <h2>Status:</h2>
+  <div id="status">NOT CONNECTED</div>
+
+  <h2>Event Log:</h2>
+  <ul id="log"></ul>
+
+  <h2>Leaderboard:</h2>
+  <ul id="leaderboard"></ul>
+
+  <h2>Current Question:</h2>
+  <div id="question"></div>
+  <ul id="options"></ul>
+  <input id="answer" placeholder="Type your answer" />
+  <button id="submitAnswer">Submit Answer</button>
+
+  <script>
+    const socket = io();
+
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+    const leaderboardEl = document.getElementById("leaderboard");
+    const questionEl = document.getElementById("question");
+    const optionsEl = document.getElementById("options");
+    const answerInput = document.getElementById("answer");
+    const submitBtn = document.getElementById("submitAnswer");
+
+    let currentPlayerId = null;
+
+    function log(msg) {
+      const li = document.createElement("li");
+      li.textContent = msg;
+      li.className = "event";
+      logEl.appendChild(li);
+    }
+
+    function renderLeaderboard(players) {
+      leaderboardEl.innerHTML = "";
+      players.forEach((p, idx) => {
+        const li = document.createElement("li");
+        li.textContent = `${p.name}: ${p.score} points`;
+        if (p.isHost) li.classList.add("host");
+        if (p.id === currentPlayerId) li.classList.add("current");
+        leaderboardEl.appendChild(li);
+      });
+    }
+
+    function renderQuestion(q) {
+      questionEl.textContent = q.prompt;
+      optionsEl.innerHTML = "";
+      if (q.type === 'MCQ' && q.options) {
+        q.options.forEach((opt, idx) => {
+          const li = document.createElement("li");
+          li.textContent = `${String.fromCharCode(65 + idx)}. ${opt}`;
+          optionsEl.appendChild(li);
+        });
+      }
+    }
+
+    // ----- Socket Events -----
+    socket.on("connect", () => {
+      statusEl.textContent = "CONNECTED (" + socket.id + ")";
+    });
+
+    socket.on("disconnect", () => {
+      statusEl.textContent = "DISCONNECTED";
+    });
+
+    socket.on("joined_successfully", ({ player, isHost }) => {
+      currentPlayerId = player.id;
+      log(`You joined as ${player.name} ${isHost ? '(Host)' : ''}`);
+    });
+
+    socket.on("user_joined", ({ player }) => {
+      log(`${player.name} joined the quiz`);
+    });
+
+    socket.on("user_left", ({ player }) => {
+      log(`${player.name} left the quiz`);
+    });
+
+    socket.on("players_update", (players) => {
+      renderLeaderboard(players);
+    });
+
+    socket.on("quiz_started", () => {
+      log("Quiz started!");
+    });
+
+    socket.on("new_question", ({ question, questionNumber, totalQuestions }) => {
+      log(`Question ${questionNumber}/${totalQuestions} started: ${question.prompt}`);
+      renderQuestion(question);
+      answerInput.value = "";
+    });
+
+    socket.on("question_ended", ({ correctIndex, correctAnswer, players }) => {
+      renderLeaderboard(players);
+      if (correctIndex != null) {
+        log(`Question ended. Correct answer: ${correctIndex >= 0 ? String.fromCharCode(65 + correctIndex) : ''}`);
+      } else if (correctAnswer) {
+        log(`Question ended. Correct answer: ${correctAnswer}`);
+      }
+    });
+
+    socket.on("quiz_finished", (players) => {
+      renderLeaderboard(players);
+      log("Quiz finished!");
+    });
+
+    socket.on("error", ({ message }) => {
+      console.error("Socket error:", message);
+      log("Error: " + message);
+    });
+
+    // ----- DOM Actions -----
+    document.getElementById("join").addEventListener("click", () => {
+      const name = document.getElementById("name").value.trim();
+      if (!name) return alert("Enter a name");
+      socket.emit("join_quiz", { name });
+    });
+
+    document.getElementById("start").addEventListener("click", () => {
+      socket.emit("start_quiz");
+    });
+
+    submitBtn.addEventListener("click", () => {
+      const answer = answerInput.value.trim();
+      if (!answer) return alert("Type an answer");
+      socket.emit("submit_answer", { answer });
+      log(`You submitted: ${answer}`);
+    });
+  </script>
+</body>
+</html>
